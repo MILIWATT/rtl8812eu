@@ -2857,24 +2857,11 @@ s32 rtw_xmitframe_coalesce_amsdu(_adapter *padapter, struct xmit_frame *pxmitfra
 
 	pattrib = &pxmitframe->attrib;
 
-	pattrib->amsdu = 1;
-
-	if (pattrib->raw_inject) {
-#ifdef PLATFORM_LINUX
-		if (!MLME_IS_MONITOR(padapter) || pkt->len != pattrib->pktlen
-		    || pkt->len > MAX_XMITBUF_SZ - hw_hdr_offset)
-			return _FAIL;
-		_rtw_memset(pbuf_start, 0, hw_hdr_offset);
-		if (skb_copy_bits(pkt, 0, mem_start, pkt->len))
-			return _FAIL;
-		pattrib->nr_frags = 1;
-		pattrib->last_txcmdsz = pkt->len;
-		ATOMIC_INC(&pxmitpriv->monitor_data_copied);
-		return _SUCCESS;
-#else
+	/* Monitor DATA never forms an on-air A-MSDU. */
+	if (pattrib->raw_inject)
 		return _FAIL;
-#endif
-	}
+
+	pattrib->amsdu = 1;
 
 	if (rtw_make_wlanhdr(padapter, mem_start, pattrib) == _FAIL) {
 		RTW_INFO("rtw_xmitframe_coalesce: rtw_make_wlanhdr fail; drop pkt\n");
@@ -3097,6 +3084,24 @@ s32 rtw_xmitframe_coalesce(_adapter *padapter, _pkt *pkt, struct xmit_frame *pxm
 #endif
 
 	mem_start = pbuf_start +	hw_hdr_offset;
+
+	if (pattrib->raw_inject) {
+#ifdef PLATFORM_LINUX
+		if (!pkt || !MLME_IS_MONITOR(padapter)
+		    || pkt->len != pattrib->pktlen
+		    || pkt->len > MAX_XMITBUF_SZ - hw_hdr_offset)
+			return _FAIL;
+		_rtw_memset(pbuf_start, 0, hw_hdr_offset);
+		if (skb_copy_bits(pkt, 0, mem_start, pkt->len))
+			return _FAIL;
+		pattrib->nr_frags = 1;
+		pattrib->last_txcmdsz = pkt->len;
+		ATOMIC_INC(&pxmitpriv->monitor_data_copied);
+		return _SUCCESS;
+#else
+		return _FAIL;
+#endif
+	}
 
 	if (rtw_make_wlanhdr(padapter, mem_start, pattrib) == _FAIL) {
 		RTW_INFO("rtw_xmitframe_coalesce: rtw_make_wlanhdr fail; drop pkt\n");
