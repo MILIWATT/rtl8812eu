@@ -289,6 +289,7 @@ struct sta_info {
 	unsigned int mgmt_sleepq_len;
 #endif
 
+	u8 monitor_peer; /* Explicit peer; does not imply IEEE association. */
 	uint state;
 	uint qos_option;
 	u16 hwseq;

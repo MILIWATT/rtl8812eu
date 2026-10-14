@@ -16,6 +16,41 @@
 
 #include <drv_types.h>
 #include <hal_data.h>
+#include <rtw_monitor_data.h>
+
+#ifdef PLATFORM_LINUX
+static bool monitor_data = false;
+module_param(monitor_data, bool, 0644);
+MODULE_PARM_DESC(monitor_data, "Opt-in raw unicast DATA queue and USB batching");
+
+static unsigned int monitor_tx_retry_limit = 6;
+static int monitor_retry_set(const char *val, const struct kernel_param *kp)
+{
+	unsigned int limit;
+	int ret = kstrtouint(val, 0, &limit);
+	if (ret)
+		return ret;
+	if (limit > 63)
+		return -EINVAL;
+	WRITE_ONCE(*(unsigned int *)kp->arg, limit);
+	return 0;
+}
+static const struct kernel_param_ops monitor_retry_ops = {
+	.set = monitor_retry_set, .get = param_get_uint,
+};
+module_param_cb(monitor_tx_retry_limit, &monitor_retry_ops,
+	&monitor_tx_retry_limit, 0644);
+MODULE_PARM_DESC(monitor_tx_retry_limit, "Injected retry-limit field 0-63; NOACK uses 0");
+#endif
+
+u8 rtw_monitor_retry_limit(void)
+{
+#ifdef PLATFORM_LINUX
+	return (u8)READ_ONCE(monitor_tx_retry_limit);
+#else
+	return 6;
+#endif
+}
 
 static u8 P802_1H_OUI[P80211_OUI_LEN] = { 0x00, 0x00, 0xf8 };
 static u8 RFC1042_OUI[P80211_OUI_LEN] = { 0x00, 0x00, 0x00 };
@@ -77,6 +112,11 @@ s32	_rtw_init_xmit_priv(struct xmit_priv *pxmitpriv, _adapter *padapter)
 	sint	res = _SUCCESS;
 
 	/* We don't need to memset padapter->XXX to zero, because adapter is allocated by rtw_zvmalloc(). */
+	ATOMIC_SET(&pxmitpriv->monitor_data_queued, 0);
+	ATOMIC_SET(&pxmitpriv->monitor_data_dropped, 0);
+	ATOMIC_SET(&pxmitpriv->monitor_data_copied, 0);
+	ATOMIC_SET(&pxmitpriv->monitor_data_usb_batches, 0);
+	ATOMIC_SET(&pxmitpriv->monitor_data_usb_frames, 0);
 	/* _rtw_memset((unsigned char *)pxmitpriv, 0, sizeof(struct xmit_priv)); */
 
 	_rtw_spinlock_init(&pxmitpriv->lock);
@@ -2695,6 +2735,9 @@ u32 rtw_calculate_wlan_pkt_size_by_attribue(struct pkt_attrib *pattrib)
 {
 	u32	len = 0;
 
+	if (pattrib->raw_inject)
+		return pattrib->pktlen;
+
 	len = pattrib->hdrlen /* WLAN Header */
 		+ pattrib->iv_len /* IV */
 		+ XATTRIB_GET_MCTRL_LEN(pattrib)
@@ -2815,6 +2858,23 @@ s32 rtw_xmitframe_coalesce_amsdu(_adapter *padapter, struct xmit_frame *pxmitfra
 	pattrib = &pxmitframe->attrib;
 
 	pattrib->amsdu = 1;
+
+	if (pattrib->raw_inject) {
+#ifdef PLATFORM_LINUX
+		if (!MLME_IS_MONITOR(padapter) || pkt->len != pattrib->pktlen
+		    || pkt->len > MAX_XMITBUF_SZ - hw_hdr_offset)
+			return _FAIL;
+		_rtw_memset(pbuf_start, 0, hw_hdr_offset);
+		if (skb_copy_bits(pkt, 0, mem_start, pkt->len))
+			return _FAIL;
+		pattrib->nr_frags = 1;
+		pattrib->last_txcmdsz = pkt->len;
+		ATOMIC_INC(&pxmitpriv->monitor_data_copied);
+		return _SUCCESS;
+#else
+		return _FAIL;
+#endif
+	}
 
 	if (rtw_make_wlanhdr(padapter, mem_start, pattrib) == _FAIL) {
 		RTW_INFO("rtw_xmitframe_coalesce: rtw_make_wlanhdr fail; drop pkt\n");
@@ -4525,7 +4585,9 @@ s32 rtw_xmit_classifier(_adapter *padapter, struct xmit_frame *pxmitframe)
 		goto exit;
 	}
 
-	if (!(psta->state & WIFI_ASOC_STATE)) {
+	if (!(psta->state & WIFI_ASOC_STATE)
+	    && !(pattrib->raw_inject && psta->monitor_peer
+	         && MLME_IS_MONITOR(padapter))) {
 		DBG_COUNTER(padapter->tx_logs.core_tx_enqueue_class_err_fwlink);
 		RTW_INFO("%s, psta->state(0x%x) != WIFI_ASOC_STATE\n", __func__, psta->state);
 		return _FAIL;
@@ -4901,6 +4963,134 @@ int rtw_ieee80211_radiotap_iterator_init(
 	return pmgntframe;
 }
 
+void rtw_monitor_data_disconnect_peers(_adapter *adapter)
+{
+	struct sta_info *sta;
+	_list *head, *pos;
+	u8 ids[NUM_STA];
+	struct sta_info *peers[NUM_STA];
+	unsigned int i, n = 0;
+	_irqL irq;
+
+	_enter_critical_bh(&adapter->stapriv.sta_hash_lock, &irq);
+	for (i = 0; i < NUM_STA; i++) {
+		head = &adapter->stapriv.sta_hash[i];
+		for (pos = get_next(head); pos != head; pos = get_next(pos)) {
+			sta = LIST_CONTAINOR(pos, struct sta_info, hash_list);
+			if (sta->monitor_peer && n < NUM_STA) {
+				ids[n] = sta->cmn.mac_id;
+				peers[n++] = sta;
+				WRITE_ONCE(sta->monitor_peer, 0);
+			}
+		}
+	}
+	_exit_critical_bh(&adapter->stapriv.sta_hash_lock, &irq);
+	for (i = 0; i < n; i++) {
+		rtw_hal_set_FwMediaStatusRpt_single_cmd(adapter, 0, 0, 0,
+			H2C_MSR_ROLE_ADHOC, ids[i]);
+		/* Standard teardown drains queues and releases the host/firmware MACID. */
+		rtw_free_stainfo(adapter, peers[i]);
+	}
+}
+
+/* Called from the proc control in process context with RTNL held. */
+int rtw_monitor_data_peer_add(_adapter *adapter, const u8 *mac)
+{
+	struct sta_info *sta;
+	int ret;
+
+	if (!IS_HARDWARE_TYPE_8822EU(adapter))
+		return -EOPNOTSUPP;
+	if (!MLME_IS_MONITOR(adapter) || RTW_CANNOT_RUN(adapter))
+		return -EBUSY;
+	if (!is_valid_ether_addr(mac) || !memcmp(mac, adapter_mac_addr(adapter), ETH_ALEN))
+		return -EINVAL;
+	sta = rtw_get_stainfo(&adapter->stapriv, mac);
+	if (sta)
+		return sta->monitor_peer ? 0 : -EEXIST;
+	sta = rtw_alloc_stainfo(&adapter->stapriv, mac);
+	if (!sta)
+		return -ENOSPC;
+	if (sta->cmn.mac_id >= adapter_to_macidctl(adapter)->num) {
+		rtw_free_stainfo(adapter, sta);
+		return -ENOSPC;
+	}
+	/* Reserve a normal firmware MACID, without issuing an association. */
+	ret = rtw_hal_set_FwMediaStatusRpt_single_cmd(adapter, 1, 0, 0,
+		H2C_MSR_ROLE_ADHOC, sta->cmn.mac_id);
+	if (ret != _SUCCESS) {
+		rtw_free_stainfo(adapter, sta);
+		return -EIO;
+	}
+	sta->qos_option = _TRUE;
+	WRITE_ONCE(sta->monitor_peer, 1);
+	return 0;
+}
+
+/* Consumes skb on every return. HAL enqueue owns it once frame->pkt is set. */
+static s32 rtw_monitor_data_xmit(_adapter *adapter, struct sk_buff *skb,
+	u8 rate, u8 sgi, u8 bw, u8 ldpc, u8 stbc, u16 txflags)
+{
+	struct rtw_monitor_data_header hdr;
+	struct xmit_priv *priv = &adapter->xmitpriv;
+	struct xmit_frame *frame;
+	struct pkt_attrib *attr;
+	struct sta_info *sta;
+	_irqL irq;
+	u32 len = skb->len;
+
+	if (RTW_CANNOT_TX(adapter) || rtw_monitor_data_parse(skb->data, len, &hdr)
+	    || len > MAX_XMIT_EXTBUF_SZ - TXDESC_OFFSET
+	    || memcmp(skb->data + 10, adapter_mac_addr(adapter), ETH_ALEN))
+		goto drop;
+	sta = rtw_get_stainfo(&adapter->stapriv, skb->data + 4);
+	if (!sta || !READ_ONCE(sta->monitor_peer))
+		goto drop;
+	frame = rtw_alloc_xmitframe(priv, 0);
+	if (!frame)
+		goto drop;
+	attr = &frame->attrib;
+	update_monitor_frame_attrib(adapter, attr);
+	attr->inject = RTW_MONITOR_DATA_INJECT;
+	attr->raw_inject = 1;
+	attr->psta = sta;
+	attr->mac_id = sta->cmn.mac_id;
+	attr->priority = hdr.tid;
+	attr->qsel = hdr.tid;
+	attr->hdrlen = hdr.hdrlen;
+	attr->qos_en = hdr.qos;
+	attr->seqnum = hdr.seq;
+	attr->pktlen = len;
+	attr->last_txcmdsz = len;
+	attr->rate = rate;
+	attr->sgi = sgi;
+	attr->bwmode = bw;
+	attr->ldpc = ldpc;
+	attr->stbc = stbc;
+	attr->retry_ctrl = (txflags & IEEE80211_RADIOTAP_F_TX_NOACK) ? _FALSE : _TRUE;
+	/* USB aggregation is independent of on-air A-MPDU/Block ACK. */
+	attr->ampdu_en = _FALSE;
+	_rtw_memcpy(attr->ra, skb->data + 4, ETH_ALEN);
+	_rtw_memcpy(attr->ta, skb->data + 10, ETH_ALEN);
+	_rtw_memcpy(attr->dst, attr->ra, ETH_ALEN);
+	_rtw_memcpy(attr->src, attr->ta, ETH_ALEN);
+	frame->pkt = skb;
+	_enter_critical_bh(&priv->lock, &irq);
+	/* Normal HAL enqueue frees the frame+skb on failure and schedules on success. */
+	if (rtw_hal_xmitframe_enqueue(adapter, frame) == _SUCCESS) {
+		ATOMIC_INC(&priv->monitor_data_queued);
+		priv->tx_pkts++;
+		priv->tx_bytes += len;
+	}
+	_exit_critical_bh(&priv->lock, &irq);
+	return NETDEV_TX_OK;
+drop:
+	ATOMIC_INC(&priv->monitor_data_dropped);
+	priv->tx_drop++;
+	rtw_skb_free(skb);
+	return NETDEV_TX_OK;
+}
+
 s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 {
 	int ret = 0;
@@ -4917,6 +5107,8 @@ s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 	struct ieee80211_radiotap_iterator iterator;
 	u8 fixed_rate = MGN_1M, sgi = 0, bwidth = 0, ldpc = 0, stbc = 0;
 	u16 txflags = 0;
+	u8 rtap_flags = 0;
+	bool rate_present = false;
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
 
 	struct xmit_frame		*pmgntframe;
@@ -4925,40 +5117,31 @@ s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 	struct rtw_ieee80211_hdr *pwlanhdr;
 	struct xmit_priv	*pxmitpriv = &(padapter->xmitpriv);
 	struct mlme_ext_priv	*pmlmeext = &(padapter->mlmeextpriv);
-	u8 *buf = skb->data;
-	u32 len = skb->len;
+	u8 *buf;
+	u32 len;
 	u8 category, action;
 	int type = -1;
 	struct registry_priv *registry_par = &padapter->registrypriv;
 
 	if (unlikely(!skb))
-		goto fail;
+		return NETDEV_TX_OK;
+	buf = skb->data;
+	len = skb->len;
 
 	rtw_mstat_update(MSTAT_TYPE_SKB, MSTAT_ALLOC_SUCCESS, skb->truesize);
 
 	if (unlikely(skb->len < sizeof(struct ieee80211_radiotap_header)))
 		goto fail;
 
+	if (skb_linearize(skb))
+		goto fail;
 	rtap_hdr = (struct ieee80211_radiotap_header *)skb->data;
 	if (unlikely(rtap_hdr->it_version))
 		goto fail;
 
 	rtap_len = ieee80211_get_radiotap_len(skb->data);
-	if (unlikely(skb->len < rtap_len))
+	if (unlikely(rtap_len < sizeof(*rtap_hdr) || skb->len < rtap_len))
 		goto fail;
-
-	if (registry_par->max_tx_buf_len > 0 &&
-		 ((pxmitpriv->free_xframe_ext_cnt <= NR_XMIT_EXTBUFF - registry_par->max_tx_buf_len) ||  // check tx queue if is about to get full
-            (pxmitpriv->free_xmit_extbuf_cnt <= NR_XMIT_EXTBUFF - registry_par->max_tx_buf_len)))  // check if we can allocate more buffers before even trying to do anything
-               return NETDEV_TX_BUSY; 
-
-	pmgntframe = monitor_alloc_mgtxmitframe(pxmitpriv);
-	if (unlikely(pmgntframe == NULL)) {
-		DBG_COUNTER(padapter->tx_logs.core_tx_err_pxmitframe);
-		pxmitpriv->tx_drop++;
-		rtw_skb_free(skb);
-		return NETDEV_TX_OK;
-	}
 
 	ret = rtw_ieee80211_radiotap_iterator_init(&iterator, rtap_hdr, skb->len, NULL);
 	while (!ret) {
@@ -4970,8 +5153,13 @@ s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 		/* see if this argument is something we can use */
 		switch (iterator.this_arg_index) {
 
+		case IEEE80211_RADIOTAP_FLAGS:
+			rtap_flags = *iterator.this_arg;
+			break;
+
 		case IEEE80211_RADIOTAP_RATE:		/* u8 */
 			fixed_rate = *iterator.this_arg;
+			rate_present = true;
 			break;
 
 		case IEEE80211_RADIOTAP_TX_FLAGS:
@@ -4985,6 +5173,7 @@ s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 				if(fixed_rate > 31)
 					fixed_rate = 0;
 				fixed_rate += MGN_MCS0;
+				rate_present = true;
 			}
 			if ((mcs_have & 4) && 
 			    (iterator.this_arg[1] & 4))
@@ -5026,6 +5215,7 @@ s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 				if(nss > 4) nss = 4;
 				if(mcs > 9) mcs = 9;
 				fixed_rate = MGN_VHT1SS_MCS0 + ((nss-1)*10 + mcs);
+				rate_present = true;
 			}
 		}
 		break;
@@ -5034,12 +5224,56 @@ s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 			break;
 		}
 	}
+	if (ret != -ENOENT)
+		goto fail;
+	/* NETDEV_TX_BUSY must leave the radiotap skb unchanged for an OS retry. */
+	if (!(READ_ONCE(monitor_data) && MLME_IS_MONITOR(padapter)
+	      && skb->len - rtap_len >= 24
+	      && (skb->data[rtap_len] & 0x0c) == 0x08
+	      && !(skb->data[rtap_len + 4] & 1))) {
+	if (registry_par->max_tx_buf_len > 0 &&
+		 ((pxmitpriv->free_xframe_ext_cnt <= NR_XMIT_EXTBUFF - registry_par->max_tx_buf_len) ||  // check tx queue if is about to get full
+            (pxmitpriv->free_xmit_extbuf_cnt <= NR_XMIT_EXTBUFF - registry_par->max_tx_buf_len)))  // check if we can allocate more buffers before even trying to do anything
+               return NETDEV_TX_BUSY;
+
+	}
 	/* Skip the ratio tap header */
 	skb_pull(skb, rtap_len);
 
 //	dot11_hdr = (struct ieee80211_hdr *)skb->data;
 //	frame_ctl = le16_to_cpu(dot11_hdr->frame_control);
 	/* Check if the QoS bit is set */
+
+	if (READ_ONCE(monitor_data) && MLME_IS_MONITOR(padapter)
+	    && skb->len >= 24 && (skb->data[0] & 0x0c) == 0x08
+	    && !(skb->data[4] & 1)) {
+		if (rtap_flags & IEEE80211_RADIOTAP_F_BADFCS)
+			goto fail;
+		if (rtap_flags & IEEE80211_RADIOTAP_F_FCS) {
+			if (skb->len < 28)
+				goto fail;
+			skb_trim(skb, skb->len - 4);
+		}
+		if (!rate_present)
+			fixed_rate = pmlmeext->cur_channel > 14 ? MGN_6M : MGN_1M;
+		return rtw_monitor_data_xmit(padapter, skb, fixed_rate, sgi,
+			bwidth, ldpc, stbc, txflags);
+	}
+
+	pmgntframe = monitor_alloc_mgtxmitframe(pxmitpriv);
+	if (unlikely(pmgntframe == NULL)) {
+		DBG_COUNTER(padapter->tx_logs.core_tx_err_pxmitframe);
+		pxmitpriv->tx_drop++;
+		rtw_skb_free(skb);
+		return NETDEV_TX_OK;
+	}
+
+	/* Legacy raw injection must also fit its preallocated management buffer. */
+	if (skb->len > MAX_XMIT_EXTBUF_SZ - TXDESC_OFFSET) {
+		rtw_free_xmitbuf(pxmitpriv, pmgntframe->pxmitbuf);
+		rtw_free_xmitframe(pxmitpriv, pmgntframe);
+		goto fail;
+	}
 
 	pattrib = &pmgntframe->attrib;
 	update_monitor_frame_attrib(padapter, pattrib);

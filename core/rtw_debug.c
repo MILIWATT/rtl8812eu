@@ -8432,6 +8432,63 @@ ssize_t proc_set_mcc_sta_bw80_target_tp(struct file *file, const char __user *bu
 }
 #endif /* CONFIG_MCC_MODE */
 
+int proc_get_monitor_peer(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *adapter = rtw_netdev_priv(dev);
+	struct xmit_priv *xmit = &adapter->xmitpriv;
+	struct sta_info *sta;
+	_list *head, *pos;
+	struct { u8 mac[ETH_ALEN]; u8 macid; } peers[NUM_STA];
+	unsigned int i, n = 0;
+	_irqL irq;
+
+	_enter_critical_bh(&adapter->stapriv.sta_hash_lock, &irq);
+	for (i = 0; i < NUM_STA; i++) {
+		head = &adapter->stapriv.sta_hash[i];
+		for (pos = get_next(head); pos != head; pos = get_next(pos)) {
+			sta = LIST_CONTAINOR(pos, struct sta_info, hash_list);
+			if (sta->monitor_peer && n < NUM_STA) {
+				_rtw_memcpy(peers[n].mac, sta->cmn.mac_addr, ETH_ALEN);
+				peers[n++].macid = sta->cmn.mac_id;
+			}
+		}
+	}
+	_exit_critical_bh(&adapter->stapriv.sta_hash_lock, &irq);
+	for (i = 0; i < n; i++)
+		RTW_PRINT_SEL(m, "peer=%pM macid=%u\n", peers[i].mac, peers[i].macid);
+	RTW_PRINT_SEL(m, "queued=%u dropped=%u copied=%u usb_batches=%u usb_frames=%u\n",
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_queued),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_dropped),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_copied),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_usb_batches),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_usb_frames));
+	return 0;
+}
+
+ssize_t proc_set_monitor_peer(struct file *file, const char __user *buffer,
+	size_t count, loff_t *pos, void *data)
+{
+	struct net_device *dev = data;
+	_adapter *adapter = rtw_netdev_priv(dev);
+	char text[32] = {0};
+	char *mac_text;
+	u8 mac[ETH_ALEN];
+	int ret;
+
+	if (!count || count >= sizeof(text))
+		return -EINVAL;
+	if (copy_from_user(text, buffer, count))
+		return -EFAULT;
+	mac_text = strim(text);
+	if (strlen(mac_text) != 17 || !mac_pton(mac_text, mac))
+		return -EINVAL;
+	rtnl_lock();
+	ret = rtw_monitor_data_peer_add(adapter, mac);
+	rtnl_unlock();
+	return ret ? ret : count;
+}
+
 int proc_get_ack_timeout(struct seq_file *m, void *v)
 {
 	struct net_device *dev = m->private;
@@ -8458,15 +8515,17 @@ ssize_t proc_set_ack_timeout(struct file *file, const char __user *buffer, size_
 {
 	struct net_device *dev = data;
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
-	char tmp[32];
+	char tmp[32] = {0};
 	u32 ack_timeout_ms, ack_timeout_ms_cck;
 
-	if (count > sizeof(tmp)) {
+	if (!count || count >= sizeof(tmp)) {
 		rtw_warn_on(1);
 		return -EFAULT;
 	}
 
-	if (buffer && !copy_from_user(tmp, buffer, count)) {
+	if (!buffer || copy_from_user(tmp, buffer, count))
+		return -EFAULT;
+	{
 		int num = sscanf(tmp, "%u %u", &ack_timeout_ms, &ack_timeout_ms_cck);
 
 #ifdef CONFIG_RTL8821C
@@ -8479,6 +8538,12 @@ ssize_t proc_set_ack_timeout(struct file *file, const char __user *buffer, size_
 			RTW_INFO(FUNC_ADPT_FMT ": input parameters < 1\n", FUNC_ADPT_ARG(padapter));
 			return -EINVAL;
 		}
+#endif
+		if (ack_timeout_ms > 255)
+			return -ERANGE;
+#ifdef CONFIG_RTL8821C
+		if (ack_timeout_ms_cck > 255)
+			return -ERANGE;
 #endif
 		/* This register sets the Ack time out value after Tx unicast packet. It is in units of us. */
 		rtw_write8(padapter, REG_ACKTO, (u8)ack_timeout_ms);

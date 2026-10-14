@@ -15,6 +15,7 @@
 #define _RTL8822EU_XMIT_C_
 
 #include <drv_types.h>			/* PADAPTER, rtw_xmit.h and etc. */
+#include <rtw_monitor_data.h>
 #include <hal_data.h>			/* HAL_DATA_TYPE */
 #include "../../hal_halmac.h"		/* halmac api */
 #include "../rtl8822e.h"		/* rtl8822e_update_txdesc() */
@@ -122,7 +123,7 @@ static s32 update_txdesc(struct xmit_frame *pxmitframe, u8 *pmem, s32 sz, u8 bag
 		SET_TX_DESC_RTY_LMT_EN_8822E(ptxdesc, 1);
 
 		if (pattrib->retry_ctrl == _TRUE) {
-			SET_TX_DESC_RTS_DATA_RTY_LMT_8822E(ptxdesc, 6); // todo: idk if it's the correct api
+			SET_TX_DESC_RTS_DATA_RTY_LMT_8822E(ptxdesc, rtw_monitor_retry_limit());
 		} else {
 			SET_TX_DESC_RTS_DATA_RTY_LMT_8822E(ptxdesc, 0);
 		}
@@ -327,6 +328,25 @@ static s32 update_txdesc(struct xmit_frame *pxmitframe, u8 *pmem, s32 sz, u8 bag
 		SET_TX_DESC_DATARATE_8822E(ptxdesc, MRateToHwRate(pmlmeext->tx_rate));
 	}
 
+	if (pattrib->raw_inject) {
+		/* DATA policy and USB count are shared; raw headers retain their sequence. */
+		SET_TX_DESC_EN_HWSEQ_8822E(ptxdesc, 0);
+		SET_TX_DESC_SW_SEQ_8822E(ptxdesc, pattrib->seqnum);
+		SET_TX_DESC_RTY_LMT_EN_8822E(ptxdesc, 1);
+		SET_TX_DESC_RTS_DATA_RTY_LMT_8822E(ptxdesc,
+			pattrib->retry_ctrl ? rtw_monitor_retry_limit() : 0);
+		/* No negotiated RA mask yet: retain the requested radiotap PHY rate. */
+		SET_TX_DESC_USE_RATE_8822E(ptxdesc, 1);
+		SET_TX_DESC_DATARATE_8822E(ptxdesc, MRateToHwRate(pattrib->rate));
+		SET_TX_DESC_DISDATAFB_8822E(ptxdesc, 1);
+		SET_TX_DESC_DISRTSFB_8822E(ptxdesc, 1);
+		SET_TX_DESC_DATA_SHORT_8822E(ptxdesc, pattrib->sgi);
+		SET_TX_DESC_DATA_BW_8822E(ptxdesc, pattrib->bwmode);
+		SET_TX_DESC_DATA_LDPC_8822E(ptxdesc, pattrib->ldpc);
+		SET_TX_DESC_DATA_STBC_8822E(ptxdesc, pattrib->stbc & 3);
+		DriverFixedRate = 1;
+	}
+
 	rtl8822e_fill_txdesc_bf(pxmitframe, ptxdesc);
 
 	if (DriverFixedRate)
@@ -428,7 +448,8 @@ static s32 rtw_dump_xframe(PADAPTER padapter, struct xmit_frame *pxmitframe)
 	    (pxmitframe->attrib.ether_type != 0x888e) &&
 	    (pxmitframe->attrib.ether_type != 0x88b4) &&
 	    (pxmitframe->attrib.dhcp_pkt != 1))
-		rtw_issue_addbareq_cmd(padapter, pxmitframe, _FALSE);
+		if (!pattrib->raw_inject)
+			rtw_issue_addbareq_cmd(padapter, pxmitframe, _FALSE);
 #endif /* CONFIG_80211N_HT */
 
 	mem_addr = pxmitframe->buf_addr;
@@ -520,6 +541,9 @@ static s32 rtl8822eu_xmitframe_complete(PADAPTER padapter, struct xmit_priv *pxm
 	u32	pbuf;	/* next pkt address */
 	u32	pbuf_tail;	/* last pkt tail */
 	u32	len;	/* packet length, except TXDESC_SIZE and PKT_OFFSET */
+#ifdef CONFIG_TX_EARLY_MODE
+	u32 aggregated_pkt_len;
+#endif
 
 	u32	bulkSize = pHalData->UsbBulkOutSize;
 	u8	descCount;
@@ -714,6 +738,9 @@ static s32 rtl8822eu_xmitframe_complete(PADAPTER padapter, struct xmit_priv *pxm
 
 		update_txdesc(pxmitframe, pxmitframe->buf_addr, pxmitframe->attrib.last_txcmdsz, _TRUE);
 
+#ifdef CONFIG_TX_EARLY_MODE
+		aggregated_pkt_len = pxmitframe->attrib.last_txcmdsz;
+#endif
 		/* don't need xmitframe any more */
 		rtw_free_xmitframe(pxmitpriv, pxmitframe);
 
@@ -725,7 +752,7 @@ static s32 rtl8822eu_xmitframe_complete(PADAPTER padapter, struct xmit_priv *pxm
 		pfirstframe->agg_num++;
 #ifdef CONFIG_TX_EARLY_MODE
 		pxmitpriv->agg_pkt[pfirstframe->agg_num - 1].offset = _RND8(len);
-		pxmitpriv->agg_pkt[pfirstframe->agg_num - 1].pkt_len = pxmitframe->attrib.last_txcmdsz;
+		pxmitpriv->agg_pkt[pfirstframe->agg_num - 1].pkt_len = aggregated_pkt_len;
 #endif
 		if (MAX_TX_AGG_PACKET_NUMBER_8822E == pfirstframe->agg_num)
 			break;
@@ -754,7 +781,8 @@ agg_end:
 	    (pfirstframe->attrib.ether_type != 0x888e) &&
 	    (pfirstframe->attrib.ether_type != 0x88b4) &&
 	    (pfirstframe->attrib.dhcp_pkt != 1))
-		rtw_issue_addbareq_cmd(padapter, pfirstframe, _FALSE);
+		if (!pfirstframe->attrib.raw_inject)
+			rtw_issue_addbareq_cmd(padapter, pfirstframe, _FALSE);
 #endif /* CONFIG_80211N_HT */
 #ifndef CONFIG_USE_USB_BUFFER_ALLOC_TX
 	/* 3. update first frame txdesc */
@@ -777,6 +805,10 @@ agg_end:
 	UpdateEarlyModeInfo8812(pxmitpriv, pxmitbuf);
 #endif /*CONFIG_TX_EARLY_MODE*/
 
+	if (pfirstframe->attrib.raw_inject) {
+		ATOMIC_INC(&pxmitpriv->monitor_data_usb_batches);
+		ATOMIC_ADD(&pxmitpriv->monitor_data_usb_frames, pfirstframe->agg_num);
+	}
 	/* 4. write xmit buffer to USB FIFO */
 #ifdef RTW_HALMAC
 	pxmitbuf->bulkout_id = rtw_halmac_usb_get_bulkout_id(pdvobj, pfirstframe->buf_addr, pfirstframe->attrib.last_txcmdsz);

@@ -667,6 +667,8 @@ ssize_t proc_set_mcc_sta_bw80_target_tp(struct file *file, const char __user *bu
 int proc_get_mcc_policy_table(struct seq_file *m, void *v);
 #endif /* CONFIG_MCC_MODE */
 
+int proc_get_monitor_peer(struct seq_file *m, void *v);
+ssize_t proc_set_monitor_peer(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data);
 int proc_get_ack_timeout(struct seq_file *m, void *v);
 ssize_t proc_set_ack_timeout(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data);
 int proc_get_cts2_timeout(struct seq_file *m, void *v);

@@ -6807,6 +6807,7 @@ const struct rtw_proc_hdl adapter_proc_hdls[] = {
 	RTW_PROC_HDL_SSEQ("xmit_block", proc_get_xmit_block, proc_set_xmit_block),
 #endif
 
+	RTW_PROC_HDL_SSEQ("monitor_peer", proc_get_monitor_peer, proc_set_monitor_peer),
 	RTW_PROC_HDL_SSEQ("ack_timeout", proc_get_ack_timeout, proc_set_ack_timeout),
         RTW_PROC_HDL_SSEQ("cts2_timeout", proc_get_cts2_timeout, proc_set_cts2_timeout),
         RTW_PROC_HDL_SSEQ("slot_time", proc_get_slot_time, proc_set_slot_time),

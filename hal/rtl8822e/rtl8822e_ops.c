@@ -1494,6 +1494,9 @@ static void hw_var_set_opmode(PADAPTER adapter, u8 mode)
 {
 	static u8 isMonitor = _FALSE;
 
+	if (mode != _HW_STATE_MONITOR_)
+		rtw_monitor_data_disconnect_peers(adapter);
+
 	if (isMonitor == _TRUE) {
 #ifdef CONFIG_WIFI_MONITOR
 		struct mon_reg_backup *backup = &GET_HAL_DATA(adapter)->mon_backup;
