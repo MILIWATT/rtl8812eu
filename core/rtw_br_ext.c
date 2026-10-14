@@ -102,12 +102,10 @@ static __inline__ unsigned char *__nat25_find_pppoe_tag(struct pppoe_hdr *ph, un
 }
 
 
-static __inline__ int __nat25_add_pppoe_tag(struct sk_buff *skb, struct pppoe_tag *tag)
+static __inline__ int __nat25_add_pppoe_tag(struct sk_buff *skb, struct pppoe_tag *tag, int data_len)
 {
 	struct pppoe_hdr *ph = (struct pppoe_hdr *)(skb->data + ETH_HLEN);
-	int data_len;
 
-	data_len = tag->tag_len + TAG_HDR_LEN;
 	if (skb_tailroom(skb) < data_len) {
 		_DEBUG_ERR("skb_tailroom() failed in add SID tag!\n");
 		return -1;
@@ -1169,7 +1167,7 @@ int nat25_db_handle(_adapter *priv, struct sk_buff *skb, int method)
 						memcpy(tag->tag_data + MAGIC_CODE_LEN, skb->data + ETH_ALEN, ETH_ALEN);
 
 						/* Add relay tag */
-						if (__nat25_add_pppoe_tag(skb, tag) < 0)
+						if (__nat25_add_pppoe_tag(skb, tag, TAG_HDR_LEN + MAGIC_CODE_LEN + RTL_RELAY_TAG_LEN + old_tag_len) < 0)
 							return -1;
 
 						RTW_INFO("NAT25: Insert PPPoE, forward %s packet\n",
