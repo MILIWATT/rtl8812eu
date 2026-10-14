@@ -44,6 +44,18 @@ AU's kernel also emits an existing `proc_next_txpwr_total_dbm` seq-file position
 
 Parser tests pass with GCC `-Wall -Wextra -Werror`. The complete native module build passes against the actual board kernel `6.1.84-10-rk2410-nocsf`. Build source revision is `a8bc78616c08bfb1bb97633769f52567756a474d`; later commits update documentation only. The module exposes `monitor_data` and `monitor_tx_retry_limit`, and its ARM64 vermagic matches that kernel. Its SHA-256 is `fb6219e23862da993765b18e48faf946860a65f35a4f24f837f50adfc2043422`, with source version `93340DD34A48B572D3325B5`. The build emits a compiler patch-release mismatch warning: kernel GCC 12.2.0-14 versus installed GCC 12.2.0-14+deb12u1; compilation and MODPOST succeed.
 
-No experimental module was installed or loaded as part of this comparison. Queueing, firmware acceptance, received ACKs, retry counts and USB batching under two monitor-only peers still require hardware measurements. The firmware ADHOC peer interpretation remains experimental.
+Following the comparison, this module was installed and loaded on both boards.
+Both unassociated monitor peers delivered a 100-frame ACK-requesting smoke test
+in each direction. Captures also counted 100 ACK frames addressed to each sender;
+these aggregate counts are not an exact per-frame ACK ledger. Native IRIS then
+passed sequential 5 Mbps UDP tests in both directions with zero reported loss,
+alongside roughly 12 Mbps video, with retry limit 20 and ACK/CTS timeout 130 us.
+USB counters showed 44,098 submitted AU frames in 39,007 batches, demonstrating
+host batching; they do not prove firmware completion or negotiated aggregation.
+AU accumulated 91 driver rejection counts during startup, whose cause remains
+unresolved; native application queues reported no drops during the benchmark.
+Monitor-mode exit produced warnings in unchanged baseline disconnect/DFS code.
+The firmware ADHOC peer interpretation remains experimental. Matched throughput
+comparisons, ACK timing sweeps and field range measurements remain outstanding.
 
 Local audit artifacts include the recovered source archives, source manifests, full file-comparison JSON and `upstream-to-board.patch` / `board-to-experimental.patch` in `output/driver-comparison-20261014` of the parent workspace.

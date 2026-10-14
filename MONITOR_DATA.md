@@ -104,7 +104,7 @@ modinfo -F vermagic ./8812eu.ko
 modinfo -F parm ./8812eu.ko
 ```
 
-## First hardware test, when available
+## Hardware test procedure
 
 Use the existing bench channel/power settings and save the current module for
 rollback. After loading the built module and setting both interfaces to monitor:
@@ -132,3 +132,11 @@ Also test malformed frames, unknown peer, queue exhaustion, interface mode exit,
 module removal, and re-entry/re-registration. Do not infer throughput improvement
 until matched baseline/modified measurements and retry/completion observations
 are available.
+
+The 2026-10-14 monitor-only bench smoke test delivered 100 ACK-requesting frames
+per direction, with 100 ACK frames captured to each sender MAC. Native IRIS
+passed sequential 5 Mbps UDP tests in each direction with zero reported loss,
+while carrying roughly 12 Mbps video. Both descriptor retry limits were 20;
+ACK and CTS timeouts were 130 us. Host counters confirmed multiple frames per
+USB batch. No negotiated A-MPDU/A-MSDU was enabled. See
+`BOARD_SOURCE_COMPARISON.md` for observed warnings and remaining test limits.
