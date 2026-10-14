@@ -5,11 +5,11 @@ Based on svpcom/rtl8812eu `v5.15.0.1` commit
 customizations preserved from branch `board-modified-baseline`. See
 [BOARD_SOURCE_COMPARISON.md](BOARD_SOURCE_COMPARISON.md).
 
-Implementation status: source changes and executable C header tests complete.
-Parser tests pass under MSVC and native board GCC. The full native kernel
-module build passes against board kernel `6.1.84-10-rk2410-nocsf`; no module has
-been loaded for hardware validation. Monitor firmware peer acceptance remains
-experimental.
+Implementation status: built and loaded on both board kernels
+`6.1.84-10-rk2410-nocsf`, with monitor-only unicast delivery and USB batching
+observed. Parser tests pass under MSVC and native board GCC. Native IRIS bench
+tests are recorded below. Firmware peer interpretation remains experimental;
+on-air aggregation and firmware rate adaptation are not implemented.
 
 ## Implemented path
 
