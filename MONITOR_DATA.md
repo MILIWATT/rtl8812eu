@@ -1,12 +1,15 @@
 # Experimental monitor unicast DATA path
 
 Based on svpcom/rtl8812eu `v5.15.0.1` commit
-`48e6e449e089fa954e4e15079bd864039e2960da`.
+`48e6e449e089fa954e4e15079bd864039e2960da`, with the deployed board
+customizations preserved from branch `board-modified-baseline`. See
+[BOARD_SOURCE_COMPARISON.md](BOARD_SOURCE_COMPARISON.md).
 
 Implementation status: source changes and executable C header tests complete.
-No Linux kernel module build or hardware validation has been completed here.
-The boards are offline, and the local Docker Linux engine was unavailable.
-Do not treat this as a production-ready module.
+Parser tests pass under MSVC and native board GCC. The full native kernel
+module build passes against board kernel `6.1.84-10-rk2410-nocsf`; no module has
+been loaded for hardware validation. Monitor firmware peer acceptance remains
+experimental.
 
 ## Implemented path
 
@@ -77,8 +80,10 @@ The actual header parser is tested by `tests/monitor_data_header_test.c`: ordina
 and QoS DATA, three/four-address layouts, HT-control length, truncation, invalid
 version, multicast, protected/fragmented/null frames, unsupported QoS policies,
 and preservation of sequence numbers with Retry set. It was compiled with MSVC
-using `/W4 /WX` and executed successfully. `git diff --check` also passes.
-These tests do not compile or exercise the kernel driver, its queues, or USB.
+using `/W4 /WX` and executed successfully, then compiled and executed on the
+GS with GCC `-std=c99 -Wall -Wextra -Werror`. The complete kernel module also
+builds against the actual ARM64 board headers. `git diff --check` passes.
+Parser tests and compilation do not exercise live queues, USB or firmware ACKs.
 
 On Linux the header tests can be run with:
 

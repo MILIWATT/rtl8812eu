@@ -32,7 +32,7 @@ These four files are preserved on branch `board-modified-baseline` (commit `9fe9
 | On-air aggregation | Ordinary associated traffic has its existing aggregation path. | Monitor DATA explicitly disables A-MPDU/A-MSDU; no negotiated Block ACK state is implemented. USB batching is separate. |
 | Observability | Existing driver counters. | Adds peer/MACID and queued, rejected, copied and submitted USB-batch/frame counters. These are not ACK/completion counters. |
 
-There are eight modified existing files and four new files relative to the preserved board baseline; the other 711 recovered files match. Changes span `core/rtw_debug.c`, `core/rtw_xmit.c`, `hal/rtl8822e/rtl8822e_ops.c`, `hal/rtl8822e/usb/rtl8822eu_xmit.c`, `include/rtw_debug.h`, `include/rtw_xmit.h`, `include/sta_info.h` and `os_dep/linux/rtw_proc.c`. New files are the parser header, parser test, probe tool and implementation notes.
+The implementation modifies eight existing files and adds four files relative to the preserved board baseline; the other 711 recovered files match. Changes span `core/rtw_debug.c`, `core/rtw_xmit.c`, `hal/rtl8822e/rtl8822e_ops.c`, `hal/rtl8822e/usb/rtl8822eu_xmit.c`, `include/rtw_debug.h`, `include/rtw_xmit.h`, `include/sta_info.h` and `os_dep/linux/rtw_proc.c`. New implementation files are the parser header, parser test, probe tool and implementation notes; this comparison report is an additional documentation file.
 
 ## Defect found during cross-reference
 
@@ -42,6 +42,8 @@ AU's kernel also emits an existing `proc_next_txpwr_total_dbm` seq-file position
 
 ## Experiment boundary
 
-Parser tests pass with GCC `-Wall -Wextra -Werror`. A native module build against the actual board kernel `6.1.84-10-rk2410-nocsf` is being checked before any load. No experimental module was installed or loaded as part of this comparison. Queueing, firmware acceptance, received ACKs, retry counts and USB batching under two monitor-only peers still require hardware measurements. The firmware ADHOC peer interpretation remains experimental.
+Parser tests pass with GCC `-Wall -Wextra -Werror`. The complete native module build passes against the actual board kernel `6.1.84-10-rk2410-nocsf`. Build source revision is `a8bc78616c08bfb1bb97633769f52567756a474d`; later commits update documentation only. The module exposes `monitor_data` and `monitor_tx_retry_limit`, and its ARM64 vermagic matches that kernel. Its SHA-256 is `fb6219e23862da993765b18e48faf946860a65f35a4f24f837f50adfc2043422`, with source version `93340DD34A48B572D3325B5`. The build emits a compiler patch-release mismatch warning: kernel GCC 12.2.0-14 versus installed GCC 12.2.0-14+deb12u1; compilation and MODPOST succeed.
+
+No experimental module was installed or loaded as part of this comparison. Queueing, firmware acceptance, received ACKs, retry counts and USB batching under two monitor-only peers still require hardware measurements. The firmware ADHOC peer interpretation remains experimental.
 
 Local audit artifacts include the recovered source archives, source manifests, full file-comparison JSON and `upstream-to-board.patch` / `board-to-experimental.patch` in `output/driver-comparison-20261014` of the parent workspace.
