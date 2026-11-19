@@ -3,7 +3,9 @@
 Separate development repository based on pristine vendor
 `v5.15.25-68-gebc5ded85.20260825_COEX20240913-390e` (25 August 2026).
 The vendor import is commit `93f987f`; subsequent commits contain our port.
-This does not replace the installed -277 driver or its source checkout.
+This has a separate source history from the previous -277 checkout.
+The experimental build was deployed for the requested plain AP/STA bench test
+on 19 November 2026; see `docs/VALIDATION.md` and `docs/PORT-MANIFEST.json`.
 
 ## Ported behavior
 

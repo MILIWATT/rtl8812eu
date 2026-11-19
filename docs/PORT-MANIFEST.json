@@ -10,9 +10,25 @@
   "validation": {
     "monitor_frame_parser": "passed with portable Windows C compiler",
     "production_sreset_mock_regression": "passed with portable Windows C compiler",
-    "kernel_module_build": "not run; Linux build hosts unreachable",
-    "hardware_test": "not run",
-    "installed": false
+    "kernel_module_build": "passed natively on both target kernels",
+    "hardware_test": "plain AP/STA association and 5/5 pings each way passed; bandwidth left to operator; monitor path not RF tested",
+    "installed": true
   },
-  "vendor_firmware_bb_rf_cfg80211_preserved": true
+  "vendor_firmware_bb_rf_cfg80211_preserved": true,
+  "deployments": [
+    {
+      "role": "gs",
+      "kernel": "6.1.84-10-rk2410-nocsf",
+      "loaded_srcversion": "11ADB7057151075FB97230B",
+      "module_sha256": "6b3da2295471dfca49ada836206d481eff7e85c6bc30cb8b0ecf0a5d1078a6ad",
+      "backup": "/var/backups/iris-vendor68-20261119-041833"
+    },
+    {
+      "role": "au",
+      "kernel": "6.1.84-8-rk2410",
+      "loaded_srcversion": "11ADB7057151075FB97230B",
+      "module_sha256": "0eebdb8a9cba0eafe39b54307b406e33dd83952d60314b741c9c1e2d68f20435",
+      "backup": "/var/backups/iris-vendor68-20261119-041833"
+    }
+  ]
 }
