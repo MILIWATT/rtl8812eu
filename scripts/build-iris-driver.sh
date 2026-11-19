@@ -12,7 +12,13 @@ if [[ ! -f "$headers/Makefile" ]]; then
   echo "Missing target kernel headers: $headers" >&2
   exit 3
 fi
-target_kernel=$(make -s -C "$headers" kernelrelease)
+# Radxa's headers can report only the base version through `make kernelrelease`.
+# The generated UTS_RELEASE is the ABI string actually embedded in vermagic.
+target_kernel=
+if [[ -f "$headers/include/generated/utsrelease.h" ]]; then
+  target_kernel=$(sed -n 's/^#define UTS_RELEASE "\(.*\)"/\1/p' "$headers/include/generated/utsrelease.h")
+fi
+[[ -n "$target_kernel" ]] || target_kernel=$(make -s -C "$headers" kernelrelease)
 cd "$root"
 make -j"$jobs" ARCH="$arch" CROSS_COMPILE="$cross" KSRC="$headers" \
   KVER="$target_kernel" CONFIG_PLATFORM_I386_PC=n MODULE_NAME=8812eu \
