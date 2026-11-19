@@ -3219,6 +3219,7 @@ int proc_get_ps_dbg_info(struct seq_file *m, void *v)
 	RTW_PRINT_SEL(m, "dbg_rpwm_toogle_cnt=%d\n", pdbgpriv->dbg_rpwm_toogle_cnt);
 	RTW_PRINT_SEL(m, "dbg_rpwm_timeout_fail_cnt=%d\n", pdbgpriv->dbg_rpwm_timeout_fail_cnt);
 	RTW_PRINT_SEL(m, "dbg_sreset_cnt=%d\n", pdbgpriv->dbg_sreset_cnt);
+	RTW_PRINT_SEL(m, "dbg_sreset_fail_cnt=%d\n", pdbgpriv->dbg_sreset_fail_cnt);
 	RTW_PRINT_SEL(m, "dbg_fw_mem_dl_error_cnt=%d\n", pdbgpriv->dbg_fw_mem_dl_error_cnt);
 
 	return 0;
@@ -5219,6 +5220,8 @@ int proc_get_sreset(struct seq_file *m, void *v)
 		RTW_PRINT_SEL(m, "rx_dma_status_cnt:%llu\n", psrtpriv->rx_dma_status_cnt);
 		RTW_PRINT_SEL(m, "self_dect_case:%d\n", psrtpriv->self_dect_case);
 		RTW_PRINT_SEL(m, "dbg_sreset_cnt:%d\n", pdbgpriv->dbg_sreset_cnt);
+		RTW_PRINT_SEL(m, "dbg_sreset_fail_cnt:%d\n", pdbgpriv->dbg_sreset_fail_cnt);
+		RTW_PRINT_SEL(m, "wifi_error_status:0x%x\n", psrtpriv->Wifi_Error_Status);
 	}
 	return 0;
 }
@@ -8357,6 +8360,222 @@ ssize_t proc_set_mcc_sta_bw80_target_tp(struct file *file, const char __user *bu
 }
 #endif /* CONFIG_MCC_MODE */
 
+int proc_get_monitor_peer(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *adapter = rtw_netdev_priv(dev);
+	struct xmit_priv *xmit = &adapter->xmitpriv;
+	struct sta_info *sta;
+	_list *head, *pos;
+	struct { u8 mac[ETH_ALEN]; u8 macid; } peers[NUM_STA];
+	unsigned int i, n = 0;
+	_irqL irq;
+
+	_enter_critical_bh(&adapter->stapriv.sta_hash_lock, &irq);
+	for (i = 0; i < NUM_STA; i++) {
+		head = &adapter->stapriv.sta_hash[i];
+		for (pos = get_next(head); pos != head; pos = get_next(pos)) {
+			sta = LIST_CONTAINOR(pos, struct sta_info, hash_list);
+			if (sta->monitor_peer && n < NUM_STA) {
+				_rtw_memcpy(peers[n].mac, sta->cmn.mac_addr, ETH_ALEN);
+				peers[n++].macid = sta->cmn.mac_id;
+			}
+		}
+	}
+	_exit_critical_bh(&adapter->stapriv.sta_hash_lock, &irq);
+	for (i = 0; i < n; i++)
+		RTW_PRINT_SEL(m, "peer=%pM macid=%u\n", peers[i].mac, peers[i].macid);
+	RTW_PRINT_SEL(m, "queued=%u dropped=%u copied=%u usb_batches=%u usb_frames=%u\n",
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_queued),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_dropped),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_copied),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_usb_batches),
+		(unsigned int)ATOMIC_READ(&xmit->monitor_data_usb_frames));
+	return 0;
+}
+
+ssize_t proc_set_monitor_peer(struct file *file, const char __user *buffer,
+	size_t count, loff_t *pos, void *data)
+{
+	struct net_device *dev = data;
+	_adapter *adapter = rtw_netdev_priv(dev);
+	char text[32] = {0};
+	char *mac_text;
+	u8 mac[ETH_ALEN];
+	int ret;
+
+	if (!count || count >= sizeof(text))
+		return -EINVAL;
+	if (copy_from_user(text, buffer, count))
+		return -EFAULT;
+	mac_text = strim(text);
+	if (strlen(mac_text) != 17 || !mac_pton(mac_text, mac))
+		return -EINVAL;
+	rtnl_lock();
+	ret = rtw_monitor_data_peer_add(adapter, mac);
+	rtnl_unlock();
+	return ret ? ret : count;
+}
+
+int proc_get_slot_time(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	u8 slot_time_val;
+
+	slot_time_val = rtw_read8(padapter, REG_SLOT);
+
+	RTW_PRINT_SEL(m, "Current Slottime = %d us (0x%x).\n", slot_time_val, slot_time_val);
+
+	return 0;
+}
+
+ssize_t proc_set_slot_time(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data)
+{
+	struct net_device *dev = data;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	char tmp[32];
+	u32 slot_time_ms;
+
+	if (count > sizeof(tmp)) {
+		rtw_warn_on(1);
+		return -EFAULT;
+	}
+
+	if (buffer && !copy_from_user(tmp, buffer, count)) {
+		int num = sscanf(tmp, "%u", &slot_time_ms);
+
+		if (num < 1) {
+			RTW_INFO(FUNC_ADPT_FMT ": input parameters < 1\n", FUNC_ADPT_ARG(padapter));
+			return -EINVAL;
+		}
+		rtw_write8(padapter, REG_SLOT, (u8)slot_time_ms);
+		RTW_INFO("Set Slottime to %d us.\n", slot_time_ms);
+	}
+	return count;
+}
+
+int proc_get_cts2_timeout(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	u8 cts2to_val;
+
+	cts2to_val = rtw_read8(padapter, REG_CTS2TO);
+
+	RTW_PRINT_SEL(m, "Current CTS2 Timeout = %d us (0x%x).\n", cts2to_val, cts2to_val);
+
+	return 0;
+}
+
+ssize_t proc_set_cts2_timeout(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data)
+{
+	struct net_device *dev = data;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	char tmp[32];
+	u32 cts2to_val;
+
+	if (count > sizeof(tmp)) {
+		rtw_warn_on(1);
+		return -EFAULT;
+	}
+
+	if (buffer && !copy_from_user(tmp, buffer, count)) {
+		int num = sscanf(tmp, "%u", &cts2to_val);
+
+		if (num < 1) {
+			RTW_INFO(FUNC_ADPT_FMT ": input parameters < 1\n", FUNC_ADPT_ARG(padapter));
+			return -EINVAL;
+		}
+		rtw_write8(padapter, REG_CTS2TO, (u8)cts2to_val);
+		RTW_INFO("Set CTS2 Timeout to %d us.\n", cts2to_val);
+	}
+	return count;
+}
+
+int proc_get_edca_params(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	u32 tmp, aifs, cwmin, cwmax, txop;
+
+        /* entry indx: 0->vo, 1->vi, 2->be, 3->bk. */
+        /* acParm = AIFS | (ECWMin << 8) | (ECWMax << 12) | (TXOP << 16);*/
+
+	tmp = rtw_read32(padapter, REG_EDCA_VO_PARAM);
+	RTW_PRINT_SEL(m, "Queue VO(0): AIFS=%d, CWmin=%d, CWmax=%d, TXOP=%d\n",
+                tmp&0xff, (tmp>>8)&0xf, (tmp>>12)&0xf,(tmp>>16)&0xffff);
+
+        tmp = rtw_read32(padapter, REG_EDCA_VI_PARAM);
+	RTW_PRINT_SEL(m, "Queue VI(1): AIFS=%d, CWmin=%d, CWmax=%d, TXOP=%d\n",
+                tmp&0xff, (tmp>>8)&0xf, (tmp>>12)&0xf,(tmp>>16)&0xffff);
+
+        tmp = rtw_read32(padapter, REG_EDCA_BE_PARAM);
+	RTW_PRINT_SEL(m, "Queue BE(2): AIFS=%d, CWmin=%d, CWmax=%d, TXOP=%d\n",
+                tmp&0xff, (tmp>>8)&0xf, (tmp>>12)&0xf,(tmp>>16)&0xffff);
+
+        tmp = rtw_read32(padapter, REG_EDCA_BK_PARAM);
+	RTW_PRINT_SEL(m, "Queue BK(3): AIFS=%d, CWmin=%d, CWmax=%d, TXOP=%d\n",
+                tmp&0xff, (tmp>>8)&0xf, (tmp>>12)&0xf,(tmp>>16)&0xffff);
+
+	return 0;
+}
+
+ssize_t proc_set_edca_params(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data)
+{
+	struct net_device *dev = data;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	char tmp[32];
+	u32 queue_id, aifs, cwmin, cwmax, txop;
+
+	if (count > sizeof(tmp)) {
+		rtw_warn_on(1);
+		return -EFAULT;
+	}
+
+	if (buffer && !copy_from_user(tmp, buffer, count)) {
+		int num = sscanf(tmp, "%u %u %u %u %u", &queue_id, &aifs, &cwmin, &cwmax, &txop);
+
+		if (num < 1) {
+			RTW_INFO(FUNC_ADPT_FMT ": input parameters < 1\n", FUNC_ADPT_ARG(padapter));
+			return -EINVAL;
+		}
+
+		if (queue_id < 0 || queue_id > 3) {
+			RTW_INFO(FUNC_ADPT_FMT ": Wrong queue id\n", FUNC_ADPT_ARG(padapter));
+			return -EINVAL;
+		}
+
+		rtw_write32(padapter, REG_EDCA_VO_PARAM+queue_id*4,
+                        (aifs&0xff) | ((cwmin&0xf)<<8) | ((cwmax&0xf)<<12) | ((txop&0xffff)<<16)
+                );
+
+		RTW_INFO("Set custom EDCA param, id=%d, aifs=%d, cwmin=%d, cwmax=%d, txop=%d.\n",
+                        queue_id, aifs, cwmin, cwmax, txop
+                );
+	}
+	return count;
+}
+
+
+int proc_get_snr_a(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *adapter = rtw_netdev_priv(dev);
+
+	RTW_PRINT_SEL(m, "%d\n", READ_ONCE(adapter->recvpriv.ofdm_snr_latest[RF_PATH_A]));
+	return 0;
+}
+
+int proc_get_snr_b(struct seq_file *m, void *v)
+{
+	struct net_device *dev = m->private;
+	_adapter *adapter = rtw_netdev_priv(dev);
+
+	RTW_PRINT_SEL(m, "%d\n", READ_ONCE(adapter->recvpriv.ofdm_snr_latest[RF_PATH_B]));
+	return 0;
+}
+
 int proc_get_ack_timeout(struct seq_file *m, void *v)
 {
 	struct net_device *dev = m->private;
@@ -8383,15 +8602,17 @@ ssize_t proc_set_ack_timeout(struct file *file, const char __user *buffer, size_
 {
 	struct net_device *dev = data;
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
-	char tmp[32];
+	char tmp[32] = {0};
 	u32 ack_timeout_ms, ack_timeout_ms_cck;
 
-	if (count > sizeof(tmp)) {
+	if (!count || count >= sizeof(tmp)) {
 		rtw_warn_on(1);
 		return -EFAULT;
 	}
 
-	if (buffer && !copy_from_user(tmp, buffer, count)) {
+	if (!buffer || copy_from_user(tmp, buffer, count))
+		return -EFAULT;
+	{
 		int num = sscanf(tmp, "%u %u", &ack_timeout_ms, &ack_timeout_ms_cck);
 
 #ifdef CONFIG_RTL8821C
@@ -8404,6 +8625,12 @@ ssize_t proc_set_ack_timeout(struct file *file, const char __user *buffer, size_
 			RTW_INFO(FUNC_ADPT_FMT ": input parameters < 1\n", FUNC_ADPT_ARG(padapter));
 			return -EINVAL;
 		}
+#endif
+		if (ack_timeout_ms > 255)
+			return -ERANGE;
+#ifdef CONFIG_RTL8821C
+		if (ack_timeout_ms_cck > 255)
+			return -ERANGE;
 #endif
 		/* This register sets the Ack time out value after Tx unicast packet. It is in units of us. */
 		rtw_write8(padapter, REG_ACKTO, (u8)ack_timeout_ms);

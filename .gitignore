@@ -1,0 +1,13 @@
+build/
+*.o
+*.ko
+*.mod
+*.mod.c
+*.order
+*.symvers
+.*.cmd
+*.o.d
+*.rej
+*.orig
+.tmp_versions/
+__pycache__/

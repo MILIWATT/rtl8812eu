@@ -86,7 +86,7 @@
 
 
 /* xmit extension buff defination */
-#define MAX_XMIT_EXTBUF_SZ	(1536)
+#define MAX_XMIT_EXTBUF_SZ	(4096)
 
 #ifdef CONFIG_SINGLE_XMIT_BUF
 	#define NR_XMIT_EXTBUFF	(1)
@@ -413,6 +413,7 @@ struct	hw_xmit	{
 };
 
 struct pkt_attrib {
+	u8 raw_inject; /* Raw WLAN bytes queued through the normal DATA worker. */
 	u8	type;
 	u8	subtype;
 	u8	bswenc;
@@ -763,6 +764,11 @@ enum cmdbuf_type {
 u8 rtw_get_hwseq_no(_adapter *padapter);
 
 struct	xmit_priv	{
+	ATOMIC_T monitor_data_queued;
+	ATOMIC_T monitor_data_dropped;
+	ATOMIC_T monitor_data_copied;
+	ATOMIC_T monitor_data_usb_batches;
+	ATOMIC_T monitor_data_usb_frames;
 
 	_lock	lock;
 
@@ -1037,6 +1043,9 @@ void rtw_get_hwxmit_idx_array(_adapter *adapter, struct xmit_priv *xmitpriv, u8 
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24))
 s32 rtw_monitor_xmit_entry(struct sk_buff *skb, struct net_device *ndev);
+int rtw_monitor_data_peer_add(_adapter *adapter, const u8 *mac);
+void rtw_monitor_data_disconnect_peers(_adapter *adapter);
+u8 rtw_monitor_retry_limit(void);
 #endif
 void rtw_xmit_dequeue_callback(_workitem *work);
 void rtw_xmit_queue_set(struct sta_info *sta);

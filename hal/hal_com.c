@@ -16685,6 +16685,13 @@ void rtw_store_phy_info(_adapter *padapter, union recv_frame *prframe)
 	/*RTW_INFO("=>%s\n", __FUNCTION__);*/
 
 
+	if (pattrib->data_rate > DESC_RATE11M) {
+		for (rf_path = 0; rf_path < hal_spec->rf_reg_path_num; rf_path++) {
+			if (GET_HAL_RX_PATH_BMP(padapter) & BIT(rf_path))
+				WRITE_ONCE(precvpriv->ofdm_snr_latest[rf_path], p_phy_info->rx_snr[rf_path]);
+		}
+	}
+
 	if (precvpriv->store_law_data_flag) {
 		isCCKrate = (pattrib->data_rate <= DESC_RATE11M) ? TRUE : FALSE;
 

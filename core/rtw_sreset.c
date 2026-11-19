@@ -289,6 +289,7 @@ void sreset_reset(_adapter *padapter)
 	struct cmd_priv *pcmdpriv = &padapter->cmdpriv;
 	u8 ips_mode_bk;
 	u8 ips_changed = _FALSE;
+	u8 sreset_leave_failed = _FALSE;
 
 	RTW_INFO("%s\n", __FUNCTION__);
 
@@ -337,12 +338,35 @@ void sreset_reset(_adapter *padapter)
 
 	/* 3. Do card disable/enable to achieve sreset. */
 	_ips_enter(padapter);
-	_ips_leave(padapter);
+	if (_ips_leave(padapter) == _FAIL)
+		sreset_leave_failed = _TRUE;
 
 	/* 4. Restore the original ips mode setting. */
 	if (ips_changed)
 		pwrpriv->ips_mode_req = ips_mode_bk;
 #endif
+
+	if (sreset_leave_failed == _TRUE) {
+		/*
+		 * The radio did not come back up (rtw_hal_init failed inside
+		 * _ips_leave). Do not restart the adapters on a half-initialized
+		 * chip: leaving the queues stopped and the dynamic check timer
+		 * disarmed keeps the wedge observable instead of masquerading
+		 * as a successful reset. User-space recovery (module reload)
+		 * owns the next step; do not unload the module from this
+		 * worker or while holding pwrpriv->lock.
+		 */
+		psrtpriv->Wifi_Error_Status = WIFI_SRESET_LEAVE_FAIL;
+		pdbgpriv->dbg_sreset_fail_cnt++;
+		psrtpriv->silent_reset_inprogress = _FALSE;
+		_exit_pwrlock(&pwrpriv->lock);
+		/* New vendor scan/connect paths may be waiting for this reset. */
+		complete_all(&psrtpriv->sreset_done);
+		RTW_ERR("%s FAILED in %d ms: radio left off, adapter stopped, module reload required\n",
+			__FUNCTION__, rtw_get_passing_time_ms(start));
+		return;
+	}
+
 #if defined(CONFIG_AP_MODE) && defined(CONFIG_CONCURRENT_MODE)
 	rtw_mi_ap_info_restore(padapter);
 #endif

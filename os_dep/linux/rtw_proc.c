@@ -6457,6 +6457,8 @@ const struct rtw_proc_hdl adapter_proc_hdls[] = {
 #endif
 	RTW_PROC_HDL_SSEQ("linked_info_dump", proc_get_linked_info_dump, proc_set_linked_info_dump),
 	RTW_PROC_HDL_SSEQ("sta_tp_dump", proc_get_sta_tp_dump, proc_set_sta_tp_dump),
+	RTW_PROC_HDL_SSEQ("snr_a", proc_get_snr_a, NULL),
+	RTW_PROC_HDL_SSEQ("snr_b", proc_get_snr_b, NULL),
 	RTW_PROC_HDL_SSEQ("sta_tp_info", proc_get_sta_tp_info, NULL),
 	RTW_PROC_HDL_SSEQ("dis_turboedca", proc_get_turboedca_ctrl, proc_set_turboedca_ctrl),
 	RTW_PROC_HDL_SSEQ("tx_info_msg", proc_get_tx_info_msg, NULL),
@@ -6679,7 +6681,11 @@ const struct rtw_proc_hdl adapter_proc_hdls[] = {
 	RTW_PROC_HDL_SSEQ("xmit_block", proc_get_xmit_block, proc_set_xmit_block),
 #endif
 
+	RTW_PROC_HDL_SSEQ("monitor_peer", proc_get_monitor_peer, proc_set_monitor_peer),
 	RTW_PROC_HDL_SSEQ("ack_timeout", proc_get_ack_timeout, proc_set_ack_timeout),
+        RTW_PROC_HDL_SSEQ("cts2_timeout", proc_get_cts2_timeout, proc_set_cts2_timeout),
+        RTW_PROC_HDL_SSEQ("slot_time", proc_get_slot_time, proc_set_slot_time),
+        RTW_PROC_HDL_SSEQ("edca_params", proc_get_edca_params, proc_set_edca_params),
 
 	RTW_PROC_HDL_SSEQ("dynamic_agg_enable", proc_get_dynamic_agg_enable, proc_set_dynamic_agg_enable),
 	RTW_PROC_HDL_SSEQ("fw_offload", proc_get_fw_offload, proc_set_fw_offload),

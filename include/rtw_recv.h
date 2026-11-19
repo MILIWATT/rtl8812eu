@@ -534,6 +534,7 @@ struct recv_priv {
 	s8 beacon_rssi;
 
 	struct rx_raw_rssi raw_rssi_info;
+	s8 ofdm_snr_latest[4];
 	/* s8 rxpwdb;	 */
 	/* int RxSNRdB[2]; */
 	/* s8 RxRssi[2]; */

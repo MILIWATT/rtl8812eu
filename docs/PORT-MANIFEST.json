@@ -1,0 +1,18 @@
+{
+  "vendor_version": "v5.15.25-68-gebc5ded85.20260825_COEX20240913-390e",
+  "vendor_import_commit": "93f987f",
+  "archive_name": "RTL88x2EU_RTL88x2CU-VE_WiFi_linux_v5.15.25-68-gebc5ded85.20260825_COEX20240913-390e.zip",
+  "archive_sha256": "6d7a35fe6bec8289ff40176f04fd491f75cb8a04deffdec1688450400adbd578",
+  "patch_inputs": {
+    "vendor277-monitor-data.patch": "8b6c76a2980b1021a893eb5540711e7c647b2159ff7b25939b75146f07039484",
+    "vendor277-sreset-recovery.patch": "8d9ee89f28ec5787a603a315565c665857833ab1ce2792f09e707c88fd30b9f3"
+  },
+  "validation": {
+    "monitor_frame_parser": "passed with portable Windows C compiler",
+    "production_sreset_mock_regression": "passed with portable Windows C compiler",
+    "kernel_module_build": "not run; Linux build hosts unreachable",
+    "hardware_test": "not run",
+    "installed": false
+  },
+  "vendor_firmware_bb_rf_cfg80211_preserved": true
+}

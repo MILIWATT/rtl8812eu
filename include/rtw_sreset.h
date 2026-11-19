@@ -58,6 +58,7 @@ struct sreset_priv {
 #define   WIFI_TX_HANG				BIT4
 #define	WIFI_RX_HANG				BIT5
 #define	WIFI_IF_NOT_EXIST			BIT6
+#define	WIFI_SRESET_LEAVE_FAIL		BIT7
 
 void sreset_init_value(_adapter *padapter);
 void sreset_reset_value(_adapter *padapter);

@@ -1986,6 +1986,10 @@ struct net_device *rtw_init_netdev(_adapter *old_padapter)
 	if (!pnetdev)
 		return NULL;
 
+#if defined(CONFIG_RTL8822E) && defined(CONFIG_WIFI_MONITOR) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0))
+	/* IRIS raw 802.11 injection uses the same netdev as managed mode. */
+	pnetdev->max_mtu = 4052;
+#endif
 	padapter = rtw_netdev_priv(pnetdev);
 	padapter->pnetdev = pnetdev;
 

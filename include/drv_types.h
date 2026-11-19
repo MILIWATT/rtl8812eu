@@ -891,6 +891,7 @@ struct debug_priv {
 	u32 dbg_rpwm_toogle_cnt;
 	u32 dbg_rpwm_timeout_fail_cnt;
 	u32 dbg_sreset_cnt;
+	u32 dbg_sreset_fail_cnt;
 	u32 dbg_fw_mem_dl_error_cnt;
 	u64 dbg_rx_fifo_last_overflow;
 	u64 dbg_rx_fifo_curr_overflow;
