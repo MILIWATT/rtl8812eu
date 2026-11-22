@@ -15,6 +15,17 @@
 
 #include <drv_types.h>
 
+/*
+ * IRIS: when set, OS regulatory hints (initiator USER, e.g. `iw reg set`)
+ * are ignored in RTK_PRIV regd-src mode, keeping the channel plan from the
+ * module parameters (rtw_country_code / rtw_channel_plan) authoritative.
+ * Needed on boards where a global `iw reg set` is required for a different
+ * radio (e.g. management WiFi) but must not stomp this card's plan.
+ */
+static uint rtw_ignore_os_regd_hint = 0;
+module_param(rtw_ignore_os_regd_hint, uint, 0644);
+MODULE_PARM_DESC(rtw_ignore_os_regd_hint, "Ignore OS USER regulatory hints, keep module-param channel plan (0:follow hints, 1:ignore)");
+
 #ifdef CONFIG_IOCTL_CFG80211
 #if !RTW_PER_ADAPTER_WIPHY
 void rtw_chset_hook_os_channels(struct rtw_chset *chset, void *os_ref)
@@ -828,6 +839,11 @@ static void rtw_reg_notifier(struct wiphy *wiphy, struct regulatory_request *req
 
 		switch (request->initiator) {
 		case NL80211_REGDOM_SET_BY_USER:
+			if (rtw_ignore_os_regd_hint) {
+				RTW_INFO(FUNC_WIPHY_FMT" ignore OS USER regd hint %c%c (rtw_ignore_os_regd_hint=1)\n"
+					, FUNC_WIPHY_ARG(wiphy), request->alpha2[0], request->alpha2[1]);
+				break;
+			}
 			rtw_set_country(wiphy_to_adapter(wiphy), request->alpha2, RTW_ENV_NUM, inr);
 			break;
 		case NL80211_REGDOM_SET_BY_DRIVER:
