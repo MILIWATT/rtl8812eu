@@ -4586,6 +4586,21 @@ static int cfg80211_rtw_get_txpower(struct wiphy *wiphy,
 		RTW_INFO(FUNC_WIPHY_FMT" total max: %d mbm\n", FUNC_WIPHY_ARG(wiphy), mbm);
 	}
 
+	/* Monitor operation can have no negotiated rate bitmap for this width.
+	 * The power estimator then returns UNSPECIFIED_MBM (32767), which must
+	 * never become a fictitious 327 dBm reading. A configured target/limit
+	 * is still available; with neither, report that power is unavailable.
+	 * This is the configured power policy, not an RF power measurement.
+	 */
+	if (mbm == UNSPECIFIED_MBM) {
+		struct rtw_wiphy_data *data = rtw_wiphy_priv(wiphy);
+
+		mbm = data->txpwr_total_target_mbm;
+		if (mbm == UNSPECIFIED_MBM)
+			mbm = data->txpwr_total_lmt_mbm;
+		if (mbm == UNSPECIFIED_MBM)
+			return -ENODATA;
+	}
 	*dbm = mbm / MBM_PDBM;
 
 	return 0;

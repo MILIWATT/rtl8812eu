@@ -15,6 +15,9 @@ on 19 November 2026; see `docs/VALIDATION.md` and `docs/PORT-MANIFEST.json`.
   A-MPDU, Block ACK or A-MSDU: those remain disabled for raw injected frames.
 - Radiotap rate, MCS/VHT, bandwidth, GI, LDPC, STBC and NOACK handling; preserve
   raw sequence numbers and frame contents. Rate fallback stays disabled.
+- Power readback guards the unspecified sentinel: use a configured target/limit
+  when the operating-rate estimate is unavailable, otherwise return ENODATA.
+  Reported power remains driver policy, not a measured RF output.
 - Runtime `monitor_tx_retry_limit` (descriptor field 0..63); NOACK frames use
   retry zero. Existing proc ACK/CTS timing controls are retained.
 - `/proc/net/rtl88x2eu/<iface>/monitor_peer` registration and queue/batch counters.
