@@ -201,6 +201,7 @@ struct rx_pkt_attrib	{
 	u8	bw;
 	u8	stbc;
 	u8	ldpc;
+	u8 phy_coding_valid; /* STBC/LDPC decoded from this packet, including zero. */
 	u8	sgi;
 	u8	pkt_rpt_type;
 	u32	MacIDValidEntry[2];	/* 64 bits present 64 entry. */

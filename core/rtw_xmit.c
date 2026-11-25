@@ -5331,6 +5331,7 @@ no_rtap_tx:
 		update_monitor_frame_attrib(padapter, &pmgntframe->attrib);
 	else
 		update_mgntframe_attrib(padapter, &pmgntframe->attrib);
+	pattrib->monitor_inject = 1;
 	pattrib->pktlen = skb->len;
 	pattrib->rate = fixed_rate;
 	pattrib->retry_ctrl = retry_ctrl;

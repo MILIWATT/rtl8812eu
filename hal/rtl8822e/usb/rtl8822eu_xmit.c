@@ -293,8 +293,9 @@ static s32 update_txdesc(struct xmit_frame *pxmitframe, u8 *pmem, s32 sz, u8 bag
 		SET_TX_DESC_DATARATE_8822E(ptxdesc, MRateToHwRate(pmlmeext->tx_rate));
 	}
 
-	if (pattrib->raw_inject) {
-		/* DATA policy and USB count are shared; raw headers retain their sequence. */
+	if (pattrib->raw_inject || pattrib->monitor_inject) {
+		/* Both injection paths honor radiotap PHY/retry settings.
+		 * Keep legacy MGNT queueing separate from the raw DATA worker. */
 		SET_TX_DESC_EN_HWSEQ_8822E(ptxdesc, 0);
 		SET_TX_DESC_SW_SEQ_8822E(ptxdesc, pattrib->seqnum);
 		SET_TX_DESC_RTY_LMT_EN_8822E(ptxdesc, 1);

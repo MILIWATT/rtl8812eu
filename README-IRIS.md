@@ -18,6 +18,10 @@ on 19 November 2026; see `docs/VALIDATION.md` and `docs/PORT-MANIFEST.json`.
 - Power readback guards the unspecified sentinel: use a configured target/limit
   when the operating-rate estimate is unavailable, otherwise return ENODATA.
   Reported power remains driver policy, not a measured RF output.
+- Legacy `monitor_data=N` injection also honors radiotap PHY settings and
+  configured hardware retries without switching to DATA queues. RX HT coding
+  reports come from per-packet JGR3 PHY metadata; absent metadata is unknown.
+  See [the comparison and fix](docs/MONITOR-PHY-FIX.md).
 - Runtime `monitor_tx_retry_limit` (descriptor field 0..63); NOACK frames use
   retry zero. Existing proc ACK/CTS timing controls are retained.
 - `/proc/net/rtl88x2eu/<iface>/monitor_peer` registration and queue/batch counters.
@@ -82,6 +86,7 @@ completion notification, lock release and the user-command guard.
 
 ```sh
 python3 tests/sreset_failure_test.py
+python3 tests/monitor_phy_test.py
 ```
 
 The example hostapd/supplicant files follow the supplied guides for a simple

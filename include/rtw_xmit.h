@@ -414,6 +414,7 @@ struct	hw_xmit	{
 
 struct pkt_attrib {
 	u8 raw_inject; /* Raw WLAN bytes queued through the normal DATA worker. */
+	u8 monitor_inject; /* Legacy monitor injection; does not select DATA queues. */
 	u8	type;
 	u8	subtype;
 	u8	bswenc;

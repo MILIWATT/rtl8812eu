@@ -351,7 +351,8 @@ sint rtw_fill_radiotap_hdr(_adapter *padapter, struct rx_pkt_attrib *a, u8 *buf)
 		}
 
 		/* FEC Type */
-		hdr_buf[rt_len] |= IEEE80211_RADIOTAP_MCS_HAVE_FEC;
+		if (a->phy_coding_valid || a->ldpc || moif->u.snif_info.ldpc)
+			hdr_buf[rt_len] |= IEEE80211_RADIOTAP_MCS_HAVE_FEC;
 		if (moif->u.snif_info.ldpc) {
 			hdr_buf[rt_len + 1] |= ((moif->u.snif_info.ldpc & 0x01) << 4);
 		} else {
@@ -359,7 +360,8 @@ sint rtw_fill_radiotap_hdr(_adapter *padapter, struct rx_pkt_attrib *a, u8 *buf)
 		}
 
 		/* STBC */
-		hdr_buf[rt_len] |= IEEE80211_RADIOTAP_MCS_HAVE_STBC;
+		if (a->phy_coding_valid || a->stbc || moif->u.snif_info.stbc)
+			hdr_buf[rt_len] |= IEEE80211_RADIOTAP_MCS_HAVE_STBC;
 		if (moif->u.snif_info.stbc) {
 			hdr_buf[rt_len + 1] |= ((moif->u.snif_info.stbc & 0x03) << 5);
 		} else {
@@ -610,6 +612,22 @@ sint rtw_fill_radiotap_hdr(_adapter *padapter, struct rx_pkt_attrib *a, u8 *buf)
 
 void rx_query_moinfo(struct rx_pkt_attrib *a, u8 *desc)
 {
+#ifdef CONFIG_RTL8822E
+	/* JGR3 reports 1..5 share DW1: byte 7 bit 5 LDPC, bit 6 STBC.
+	 * See phy_sts_rpt_jgr3_type1/type2_3/type4/type5 in
+	 * hal/phydm/phydm_phystatus.h. Page 0 is CCK, not this layout.
+	 * Decode the current packet, never the shared PHY debug cache.
+	 */
+	a->phy_coding_valid = 0;
+	a->ldpc = 0;
+	a->stbc = 0;
+	if (desc && a->physt && a->drvinfo_sz >= 8 &&
+	    (desc[0] & 0x0f) >= 1 && (desc[0] & 0x0f) <= 5) {
+		a->ldpc = (desc[7] >> 5) & 1;
+		a->stbc = (desc[7] >> 6) & 1;
+		a->phy_coding_valid = 1;
+	}
+#endif
 	switch (a->drvinfo_sz) {
 	case 40:
 		_rtw_memcpy(a->moif, &desc[32], 8);
